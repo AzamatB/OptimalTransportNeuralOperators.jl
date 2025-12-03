@@ -70,9 +70,9 @@ end
 xs (d×n) and ys (d×m) using the Log-Domain Sinkhorn-Knopp algorithm, assuming uniform marginals.
     Returns P (n×m) such that P >= 0.
 """
-function sinkhorn_plan(xs::M, ys::M, num_iters::Int=64) where {M<:DenseMatrix{Float32}}
+function sinkhorn_plan(xs::M, ys::M, num_iters::Int=100) where {M<:DenseMatrix{Float32}}
     T = Float32
-    ε = T(0.005)
+    ε = T(0.004)
     cost_mat = pairwise_squared_euclidean_distance(xs, ys)
     (n, m) = size(cost_mat)
 
@@ -112,4 +112,36 @@ function sinkhorn_plan(xs::M, ys::M, num_iters::Int=64) where {M<:DenseMatrix{Fl
     # transport plan: log_P = f + g + logK; -> (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
     P = exp.(f .+ g .+ logK)
     return P
+end
+
+"""
+    pushforward_to_latent(u_physical, P)
+
+u_physical: (d × n) features on physical surface.
+P:          (n × m) optimal transport plan between physical and latent spaces.
+
+Returns u_latent: (d × m) features on latent torus grid.
+"""
+function pushforward_to_latent(u_physical::M, P::M) where {M<:DenseMatrix{Float32}}
+    # normalize columns to 1, so that mapping is barycentric
+    col_sums = sum(P; dims=1)        # (1 × m)
+    P_norm = P ./ col_sums           # (n × m)
+    u_latent = u_physical * P_norm   # (d × n) * (n × m) -> (d × m)
+    return u_latent
+end
+
+"""
+    pullback_to_physical(v_latent, P)
+
+v_latent: (d × m) features on latent torus grid.
+P:        (n × m) optimal transport plan between physical and latent spaces.
+
+Returns v_physical: (d × n) features on physical surface.
+"""
+function pullback_to_physical(v_latent::M, P::M) where {M<:DenseMatrix{Float32}}
+    # normalize rows to 1, so that mapping is barycentric
+    row_sums = sum(P; dims=2)         # (n × 1)
+    P_norm = P ./ row_sums            # (n × m)
+    v_physical = v_latent * P_norm'   # (d × m) * (m × n) -> (d × n)
+    return v_physical
 end
