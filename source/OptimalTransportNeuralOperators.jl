@@ -70,9 +70,9 @@ end
 xs (d×n) and ys (d×m) using the Log-Domain Sinkhorn-Knopp algorithm, assuming uniform marginals.
     Returns P (n×m) such that P >= 0.
 """
-function sinkhorn_plan(xs::M, ys::M, num_iters::Int=50) where {M<:DenseMatrix{Float32}}
+function sinkhorn_plan(xs::M, ys::M, num_iters::Int=64) where {M<:DenseMatrix{Float32}}
     T = Float32
-    ε = T(0.01)
+    ε = T(0.005)
     cost_mat = pairwise_squared_euclidean_distance(xs, ys)
     (n, m) = size(cost_mat)
 
