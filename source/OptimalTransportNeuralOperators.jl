@@ -4,6 +4,79 @@ using MeshIO
 using NNlib
 using Statistics
 
+abstract type LatentGrid end
+
+# As ϕ changes from 0 to 2π, a point traces out a full circle around the z-axis,
+# forming the outer "ring" of the torus.
+# As θ changes from 0 to 2π, a point moves around the cross-sectional circle of the tube.
+struct Torus <: LatentGrid
+    n::Int
+    R::Float32
+    r::Float32
+    ϕ_vals::Vector{Float32}
+    θ_vals::Vector{Float32}
+
+    function Torus(n::Int, R::Real=2.0f0, r::Real=1.0f0)
+        @assert R > r > 0
+        T = Float32
+        ϕ_vals = collect(range(T(0), T(2π), length=n + 1)[1:end-1])
+        θ_vals = collect(range(T(0), T(2π), length=n + 1)[1:end-1])
+        return new(n, R, r, ϕ_vals, θ_vals)
+    end
+end
+
+abstract type AbstractPointCloud{M<:DenseMatrix{Float32}} end
+
+struct EuclideanPointCloud{M<:DenseMatrix{Float32}} <: AbstractPointCloud{M}
+    num_points::Int
+    points::M
+end
+
+function EuclideanPointCloud(points::M) where {M<:DenseMatrix{Float32}}
+    num_points = size(points, 2)
+    return EuclideanPointCloud{M}(num_points, points)
+end
+
+struct LatentPointCloud{M<:DenseMatrix{Float32},G<:LatentGrid} <: AbstractPointCloud{M}
+    num_points::Int
+    points::M
+    grid::G
+end
+
+function LatentPointCloud(points::M, grid::G) where {M<:DenseMatrix{Float32},G<:LatentGrid}
+    num_points = size(points, 2)
+    return LatentPointCloud{M,G}(num_points, points, grid)
+end
+
+function LatentPointCloud{M}(torus::Torus) where {M<:DenseMatrix{Float32}}
+    T = Float32
+    n = torus.n
+    R = torus.R
+    r = torus.r
+    ϕ_vals = torus.ϕ_vals
+    θ_vals = torus.θ_vals
+
+    points = Array{T,3}(undef, 3, n, n)
+    @inbounds for j in eachindex(θ_vals)
+        θ = θ_vals[j]
+        v = R + r * cos(θ)
+        z = r * sin(θ)
+        for i in eachindex(ϕ_vals)
+            ϕ = ϕ_vals[i]
+            x = v * cos(ϕ)
+            y = v * sin(ϕ)
+            points[1, i, j] = x
+            points[2, i, j] = y
+            points[3, i, j] = z
+        end
+    end
+    # 3 × n² (column-major, flattens ϕ first, then θ)
+    points_mat = reshape(points, 3, :)
+    num_points = size(points_mat, 2)
+    point_cloud = LatentPointCloud{M,Torus}(num_points, points_mat, torus)
+    return point_cloud
+end
+
 # extract vertices from a mesh as a 3×n Matrix{T}
 function extract_vertices(mesh::Mesh)
     T = Float32
@@ -12,68 +85,48 @@ function extract_vertices(mesh::Mesh)
     dim = length(first(vertices))
     points = Matrix{T}(undef, dim, num_points)
     eachcol(points) .= vertices
-    return points::Matrix{T}
-end
-
-# Create a regular nθ×nφ grid on a torus with major radius R and minor radius r.
-# Returns (points_flat, θ_vals, φ_vals), where points_flat is (n, 3), n = nθ*nφ.
-# As θ changes from 0 to 2π, a point traces out a full circle around the z-axis,
-# forming the outer "ring" of the torus.
-# As φ changes from 0 to 2π, a point moves around the cross-sectional circle of the tube.
-function generate_torus_latent_points(R::Real, r::Real, nθ::Int, nφ::Int)
-    @assert R > r > 0
-    T = Float32
-    radius_maj = T(R)
-    radius_min = T(r)
-    θ_vals = collect(range(T(0), T(2π), length=nθ + 1)[1:end-1])
-    φ_vals = collect(range(T(0), T(2π), length=nφ + 1)[1:end-1])
-
-    points = Array{T,3}(undef, 3, nθ, nφ)
-    @inbounds for j in eachindex(φ_vals)
-        φ = φ_vals[j]
-        v = radius_maj + radius_min * cos(φ)
-        z = radius_min * sin(φ)
-        for i in eachindex(θ_vals)
-            θ = θ_vals[i]
-            x = v * cos(θ)
-            y = v * sin(θ)
-            points[1, i, j] = x
-            points[2, i, j] = y
-            points[3, i, j] = z
-        end
-    end
-    # 3 × n (column-major, flattens θ first, then φ)
-    points_flat = reshape(points, 3, :)
-    return points_flat::Matrix{T}, θ_vals::Vector{T}, φ_vals::Vector{T}
+    point_cloud = EuclideanPointCloud(points)
+    return point_cloud
 end
 
 # Computes pairwise squared Euclidean distance between two point clouds.
-# xs: (d, n) - Physical points
-# ys: (d, m) - Latent grid points
+# xs: (d, n) - Latent points
+# ys: (d, m) - Physical grid points
 # Returns: (n, m) distance matrix
-function pairwise_squared_euclidean_distance(xs::DenseMatrix{Float32}, ys::DenseMatrix{Float32})
+function pairwise_squared_euclidean_distance(
+    xs::M,                                      # d × n
+    ys::M                                       # d × m
+) where {M<:DenseMatrix{Float32}}
     # xᵀx, yᵀy
-    xs_sq = sum(abs2, xs; dims=1)  # (1, n)
-    ys_sq = sum(abs2, ys; dims=1)  # (1, m)
-    xs_sqᵀ = xs_sq'  # (n, 1)
+    xs_sq = sum(abs2, xs; dims=1)               # (1 × n)
+    ys_sq = sum(abs2, ys; dims=1)               # (1 × m)
+    xs_sqᵀ = xs_sq'                             # (n × 1)
     # xᵀy
-    xys = xs' * ys  # (n, m)
+    xys = xs' * ys                              # (n × m)
     # xᵀx + yᵀy - 2xᵀy,  ∀ x ∈ xs, y ∈ ys
     dists = @. xs_sqᵀ + ys_sq - 2 * xys
-    return dists
+    # ensure non-negativity
+    zer = zero(Float32)
+    dists = max.(dists, zer)
+    return dists                                # (n × m)
+end
+
+function pairwise_squared_euclidean_distance(
+    xs::AbstractPointCloud{M}, ys::AbstractPointCloud{M}
+) where {M<:DenseMatrix{Float32}}
+    return pairwise_squared_euclidean_distance(xs.points, ys.points)
 end
 
 """
-    sinkhorn_plan(xs::M, ys::M, num_iters::Int=50)
+    compute_optimal_transport_plan(xs::M, ys::M, num_iters::Int=50)
 
     Compute an entropic regularized optimal transport plan between discrete measures on
 xs (d×n) and ys (d×m) using the Log-Domain Sinkhorn-Knopp algorithm, assuming uniform marginals.
     Returns P (n×m) such that P >= 0.
 """
-function sinkhorn_plan(xs::M, ys::M, num_iters::Int=100) where {M<:DenseMatrix{Float32}}
+function compute_optimal_transport_plan(cost_mat::DenseMatrix{Float32}, num_iters::Int)
     T = Float32
-    ε = T(0.004)
-    cost_mat = pairwise_squared_euclidean_distance(xs, ys)
+    ε = T(0.005) # relative (to the mean cost) entropy regularization parameter
     (n, m) = size(cost_mat)
 
     # target log-marginals (uniform measures)
@@ -90,58 +143,99 @@ function sinkhorn_plan(xs::M, ys::M, num_iters::Int=100) where {M<:DenseMatrix{F
     fill!(f, zer)
     fill!(g, zer)
 
-    # kernel in log domain: K = -cost_mat / (ε * mean(cost_mat))
-    c = -ε * mean(cost_mat) # factor in normalization by mean cost for numerical stability
-    logK = cost_mat ./ c
+    # effective entropy regularization: ε_eff = ε * mean(cost_mat)
+    c = -1.0f0 / (ε * mean(cost_mat))
+    # kernel in log domain: logK = -cost_mat / (ε * mean(cost_mat))
+    logK = c .* cost_mat
 
     for _ in 1:num_iters
-        # update f (row normalization):     S_f = g + logK -> (1, m) .+ (n, m) -> (n, m)
-        S_f = g .+ logK
+        # update f (row normalization)
+        S_f = g .+ logK                  # (1 × m) .+ (n × m) -> (n × m)
         lse_f = logsumexp(S_f; dims=2)
         f = log_mu .- lse_f
-        # update g (column normalization):  S_g = f + logK -> (n, 1) .+ (n, m) -> (n, m)
-        S_g = f .+ logK
+        # update g (column normalization)
+        S_g = f .+ logK                  # (n × 1) .+ (n × m) -> (n × m)
         lse_g = logsumexp(S_g; dims=1)
         g = log_nu .- lse_g
     end
-    # final row normalization
-    S_f = g .+ logK
-    lse_f = logsumexp(S_f; dims=2)
-    f = log_mu .- lse_f
-
     # transport plan: log_P = f + g + logK; -> (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
     P = exp.(f .+ g .+ logK)
     return P
 end
 
-"""
-    pushforward_to_latent(u_physical, P)
+struct OptimalTransportPlan{M<:DenseMatrix{Float32},G<:LatentGrid}
+    plan::M
+    grid::G
+end
 
-u_physical: (d × n) features on physical surface.
-P:          (n × m) optimal transport plan between physical and latent spaces.
+function OptimalTransportPlan(
+    xs::EuclideanPointCloud{M}, ys::LatentPointCloud{M,G}, num_iters::Int=100
+) where {M<:DenseMatrix{Float32},G<:LatentGrid}
+    dists = pairwise_squared_euclidean_distance(xs, ys)
+    plan = compute_optimal_transport_plan(dists, num_iters)
+    return OptimalTransportPlan(plan, ys.grid)
+end
 
-Returns u_latent: (d × m) features on latent torus grid.
-"""
-function pushforward_to_latent(u_physical::M, P::M) where {M<:DenseMatrix{Float32}}
-    # normalize columns to 1, so that mapping is barycentric
-    col_sums = sum(P; dims=1)        # (1 × m)
-    P_norm = P ./ col_sums           # (n × m)
-    u_latent = u_physical * P_norm   # (d × n) * (n × m) -> (d × m)
-    return u_latent
+function normalize_columns(xs::AbstractMatrix{<:Real})
+    col_sums = sum(xs; dims=1)
+    xs_norm = xs ./ col_sums
+    return xs_norm
+end
+
+function transport(
+    points::DenseMatrix{Float32},             # (d × n)
+    plan::AbstractMatrix{Float32}             # (n × m)
+)
+    @assert size(points, 2) == size(plan, 1)
+    # normalize the transport plan columns for barycentric projection
+    plan_norm = normalize_columns(plan)       # (n × m)
+    # perform the barycentric projection
+    points_transported = points * plan_norm   # (d × m)
+    return points_transported
 end
 
 """
-    pullback_to_physical(v_latent, P)
+    pushforward_to_latent(point_cloud::EuclideanPointCloud, ot_plan::OptimalTransportPlan)
 
-v_latent: (d × m) features on latent torus grid.
-P:        (n × m) optimal transport plan between physical and latent spaces.
-
-Returns v_physical: (d × n) features on physical surface.
+point_cloud: (d × n) features on physical surface.
+ot_plan:     (n × m) optimal transport plan from physical to latent spaces.
+Returns point_cloud_transported: (d × m) features on latent grid.
 """
-function pullback_to_physical(v_latent::M, P::M) where {M<:DenseMatrix{Float32}}
-    # normalize rows to 1, so that mapping is barycentric
-    row_sums = sum(P; dims=2)         # (n × 1)
-    P_norm = P ./ row_sums            # (n × m)
-    v_physical = v_latent * P_norm'   # (d × m) * (m × n) -> (d × n)
-    return v_physical
+function pushforward_to_latent(
+    point_cloud::EuclideanPointCloud{M},                       # (d × n)
+    ot_plan::OptimalTransportPlan{M,G}                         # (n × m)
+) where {M<:DenseMatrix{Float32},G<:LatentGrid}
+    plan = ot_plan.plan
+    points_transported = transport(point_cloud.points, plan)   # (d × m)
+    point_cloud_transported = LatentPointCloud(points_transported, ot_plan.grid)
+    return point_cloud_transported
+end
+
+"""
+    pullback_to_physical(point_cloud::LatentPointCloud, ot_plan::OptimalTransportPlan)
+
+point_cloud: (d × m) features on latent grid.
+ot_plan:     (n × m) optimal transport plan from physical to latent spaces.
+Returns point_cloud_transported: (d × n) features on physical surface.
+"""
+function pullback_to_physical(
+    point_cloud::LatentPointCloud{M},                           # (d × m)
+    ot_plan::OptimalTransportPlan{M}                            # (n × m)
+) where {M<:DenseMatrix{Float32}}
+    plan = ot_plan.plan
+    # transpose the transport plan to go from latent to physical
+    points_transported = transport(point_cloud.points, plan')   # (d × n)
+    point_cloud_transported = EuclideanPointCloud(points_transported)
+    return point_cloud_transported
+end
+
+# for each point in the destination point cloud, find and assign the index of the closest point in the source point cloud
+function assign_points(
+    point_cloud_src::AbstractPointCloud,       # (d x n)
+    point_cloud_dst::AbstractPointCloud        # (d x m)
+)
+    dists = pairwise_squared_euclidean_distance(point_cloud_src, point_cloud_dst) # (n x m)
+    index_pairs = vec(argmin(dists; dims=1))   # (m)
+    indices_best = getindex.(index_pairs, 1)   # (m)
+    return indices_best
 end

@@ -4,19 +4,22 @@ using MeshIO
 
 file_path = "datasets/ShapeNet-Car/data/mesh_001.ply"
 mesh = load(file_path)
-points = extract_vertices(mesh)
+point_cloud = extract_vertices(mesh)
 
-R = 3.0
-r = 1.0
-nθ = 64
-nφ = 64
+n = 64
+torus = Torus(n)
+point_cloud_latent = LatentPointCloud{Matrix{Float32}}(torus)
 
-(latent_points, θ_vals, φ_vals) = generate_torus_latent_points(R, r, nθ, nφ)
+dists = pairwise_squared_euclidean_distance(point_cloud, point_cloud_latent)
+@time ot_plan = OptimalTransportPlan(point_cloud, point_cloud_latent)
 
-dists = pairwise_squared_euclidean_distance(points, latent_points)
+point_cloud_transported_latent = pushforward_to_latent(point_cloud, ot_plan)
+point_cloud_transported = pullback_to_physical(point_cloud_transported_latent, ot_plan)
 
-@time plan = sinkhorn_plan(points, latent_points)
+indices = assign_points(point_cloud, point_cloud_transported_latent)
 
-count(iszero, plan)/length(plan)
-minimum(sum(plan; dims=2))/(1/size(plan, 1))
-minimum(sum(plan; dims=1))/(1/size(plan, 2))
+unique(indices)
+
+count(iszero, ot_plan.plan)/length(ot_plan.plan)
+minimum(sum(ot_plan.plan; dims=2)) / (1 / size(ot_plan.plan, 1))
+minimum(sum(ot_plan.plan; dims=1)) / (1 / size(ot_plan.plan, 2))
