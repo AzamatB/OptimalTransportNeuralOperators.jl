@@ -229,7 +229,8 @@ function pullback_to_physical(
     return point_cloud_transported
 end
 
-# for each point in the destination point cloud, find and assign the index of the closest point in the source point cloud
+# for each point in the destination point cloud, find and assign the index of the closest
+# point in the source point cloud
 function assign_points(
     point_cloud_src::AbstractPointCloud,       # (d x n)
     point_cloud_dst::AbstractPointCloud        # (d x m)
