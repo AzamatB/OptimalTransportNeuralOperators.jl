@@ -10,15 +10,15 @@ n = 64
 torus = Torus(n)
 point_cloud_latent = LatentPointCloud{Matrix{Float32}}(torus)
 
-dists = pairwise_squared_euclidean_distance(point_cloud, point_cloud_latent)
-@time ot_plan = OptimalTransportPlan(point_cloud, point_cloud_latent)
+(encoding_indices, decoding_indices, ot_plan, point_cloud_transported) = compute_encoder_and_decoder(
+    point_cloud, point_cloud_latent
+)
 
-point_cloud_transported_latent = pushforward_to_latent(point_cloud, ot_plan)
-point_cloud_transported = pullback_to_physical(point_cloud_transported_latent, ot_plan)
+unique(encoding_indices)
+unique(decoding_indices)
 
-indices = assign_points(point_cloud, point_cloud_transported_latent)
-
-unique(indices)
+encoded_points = point_cloud.points[:, encoding_indices]
+decoded_points = point_cloud_transported.points[:, decoding_indices]
 
 count(iszero, ot_plan.plan)/length(ot_plan.plan)
 minimum(sum(ot_plan.plan; dims=2)) / (1 / size(ot_plan.plan, 1))

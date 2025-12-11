@@ -195,30 +195,30 @@ function transport(
 end
 
 """
-    pushforward_to_latent(point_cloud::EuclideanPointCloud, ot_plan::OptimalTransportPlan)
+    pushforward_to_physical(point_cloud::EuclideanPointCloud, ot_plan::OptimalTransportPlan)
 
 point_cloud: (d × n) features on physical surface.
 ot_plan:     (n × m) optimal transport plan from physical to latent spaces.
 Returns point_cloud_transported: (d × m) features on latent grid.
 """
-function pushforward_to_latent(
+function pushforward_to_physical(
     point_cloud::EuclideanPointCloud{M},                       # (d × n)
     ot_plan::OptimalTransportPlan{M,G}                         # (n × m)
 ) where {M<:DenseMatrix{Float32},G<:LatentGrid}
     plan = ot_plan.plan
     points_transported = transport(point_cloud.points, plan)   # (d × m)
-    point_cloud_transported = LatentPointCloud(points_transported, ot_plan.grid)
+    point_cloud_transported = EuclideanPointCloud(points_transported)
     return point_cloud_transported
 end
 
 """
-    pullback_to_physical(point_cloud::LatentPointCloud, ot_plan::OptimalTransportPlan)
+    pullback_from_latent(point_cloud::LatentPointCloud, ot_plan::OptimalTransportPlan)
 
 point_cloud: (d × m) features on latent grid.
 ot_plan:     (n × m) optimal transport plan from physical to latent spaces.
 Returns point_cloud_transported: (d × n) features on physical surface.
 """
-function pullback_to_physical(
+function pullback_from_latent(
     point_cloud::LatentPointCloud{M},                           # (d × m)
     ot_plan::OptimalTransportPlan{M}                            # (n × m)
 ) where {M<:DenseMatrix{Float32}}
@@ -239,4 +239,15 @@ function assign_points(
     index_pairs = vec(argmin(dists; dims=1))   # (m)
     indices_best = getindex.(index_pairs, 1)   # (m)
     return indices_best
+end
+
+function compute_encoder_and_decoder(
+    point_cloud::EuclideanPointCloud{M},      # (d × n)
+    point_cloud_latent::LatentPointCloud{M}   # (d × m)
+) where {M<:DenseMatrix{Float32}}
+    ot_plan = OptimalTransportPlan(point_cloud, point_cloud_latent)           # (n × m)
+    point_cloud_transported = pushforward_to_physical(point_cloud, ot_plan)   # (d × m)
+    encoding_indices = assign_points(point_cloud, point_cloud_transported)    # (m)
+    decoding_indices = assign_points(point_cloud_transported, point_cloud)    # (n)
+    return (encoding_indices, decoding_indices, ot_plan, point_cloud_transported)
 end
