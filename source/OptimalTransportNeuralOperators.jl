@@ -17,11 +17,13 @@ struct Torus <: LatentGrid
     ϕ_vals::Vector{Float32}
     θ_vals::Vector{Float32}
 
-    function Torus(n::Int, R::Real=2.0f0, r::Real=1.0f0)
+    function Torus(nθ::Int, R::Real=2.0f0, r::Real=1.0f0)
         @assert R > r > 0
         T = Float32
-        ϕ_vals = collect(range(T(0), T(2π), length=n + 1)[1:end-1])
-        θ_vals = collect(range(T(0), T(2π), length=n + 1)[1:end-1])
+        nϕ = floor(Int, nθ * R / r)
+        n = nϕ * nθ
+        ϕ_vals = collect(range(T(0), T(2π), length=(nϕ + 1))[1:end-1])
+        θ_vals = collect(range(T(0), T(2π), length=(nθ + 1))[1:end-1])
         return new(n, R, r, ϕ_vals, θ_vals)
     end
 end
@@ -51,14 +53,16 @@ end
 
 function LatentPointCloud{M}(torus::Torus) where {M<:DenseMatrix{Float32}}
     T = Float32
-    n = torus.n
     R = torus.R
     r = torus.r
     ϕ_vals = torus.ϕ_vals
     θ_vals = torus.θ_vals
+    nϕ = length(ϕ_vals)
+    nθ = length(θ_vals)
 
     sincosϕs = NTuple{2,Float32}[(sin(ϕ), cos(ϕ)) for ϕ in ϕ_vals]
-    points = Array{T}(undef, 3, n, n)
+    points = Array{T}(undef, 3, nϕ, nθ)
+
     @inbounds for j in eachindex(θ_vals)
         θ = θ_vals[j]
         (sinθ, cosθ) = sincos(θ)
@@ -74,10 +78,47 @@ function LatentPointCloud{M}(torus::Torus) where {M<:DenseMatrix{Float32}}
         end
     end
 
-    # 3 × n² (column-major, flattens ϕ first, then θ)
+    # 3 × (nϕ⋅nθ) (column-major, flattens ϕ first, then θ)
     points_mat = reshape(points, 3, :)
     point_cloud = LatentPointCloud{M,Torus}(points_mat, torus)
     return point_cloud
+end
+
+function compute_latent_point_normals_and_weights(torus::Torus)
+    T = Float32
+    R = torus.R
+    r = torus.r
+    ϕ_vals = torus.ϕ_vals
+    θ_vals = torus.θ_vals
+    nϕ = length(ϕ_vals)
+    nθ = length(θ_vals)
+
+    sincosϕs = NTuple{2,Float32}[(sin(ϕ), cos(ϕ)) for ϕ in ϕ_vals]
+    normals = Array{T}(undef, 3, nϕ, nθ)
+    weights = Matrix{T}(undef, nϕ, nθ)
+    @inbounds for j in eachindex(θ_vals)
+        θ = θ_vals[j]
+        (sinθ, cosθ) = sincos(θ)
+        # weight ∝ (R + r * cosθ)
+        weight = R + r * cosθ
+        for i in eachindex(ϕ_vals)
+            (sinϕ, cosϕ) = sincosϕs[i]
+            normals[1,i,j] = cosϕ * cosθ
+            normals[2,i,j] = sinϕ * cosθ
+            normals[3,i,j] = sinθ
+            weights[i,j] = weight
+        end
+    end
+
+    # 3 × (nϕ⋅nθ) (column-major, flattens ϕ first, then θ)
+    normals_mat = reshape(normals, 3, :)
+    weights_vec = reshape(weights, :)
+
+    # normalize weights to sum to 1; normals are already unit length
+    Σweight⁻¹ = inv(sum(weights_vec))
+    @assert isfinite(Σweight⁻¹)
+    weights_vec .*= Σweight⁻¹
+    return (normals_mat, weights_vec)
 end
 
 # extract vertices from a mesh as a 3×n Matrix{T}
@@ -94,7 +135,7 @@ end
 
 # compute vertex normals and weights for a 3D mesh composed of triangular faces, which are
 # computed by averaging the normals of adjacent faces, weighted by the area of those faces.
-function compute_mesh_vertex_normals(
+function compute_mesh_vertex_normals_and_weights(
     mesh::Mesh{3,Float32,FaceType,(:position,),Tuple{Vector{Point{3,Float32}}}}
 ) where {FaceType<:NgonFace{3}}
     T = Float32
