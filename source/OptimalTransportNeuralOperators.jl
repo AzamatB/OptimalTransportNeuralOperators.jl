@@ -57,24 +57,26 @@ function LatentPointCloud{M}(torus::Torus) where {M<:DenseMatrix{Float32}}
     ϕ_vals = torus.ϕ_vals
     θ_vals = torus.θ_vals
 
-    points = Array{T,3}(undef, 3, n, n)
+    sincosϕs = NTuple{2,Float32}[(sin(ϕ), cos(ϕ)) for ϕ in ϕ_vals]
+    points = Array{T}(undef, 3, n, n)
     @inbounds for j in eachindex(θ_vals)
         θ = θ_vals[j]
-        v = R + r * cos(θ)
-        z = r * sin(θ)
+        (sinθ, cosθ) = sincos(θ)
+        v = R + r * cosθ
+        z = r * sinθ
         for i in eachindex(ϕ_vals)
-            ϕ = ϕ_vals[i]
-            x = v * cos(ϕ)
-            y = v * sin(ϕ)
-            points[1, i, j] = x
-            points[2, i, j] = y
-            points[3, i, j] = z
+            (sinϕ, cosϕ) = sincosϕs[i]
+            x = v * cosϕ
+            y = v * sinϕ
+            points[1,i,j] = x
+            points[2,i,j] = y
+            points[3,i,j] = z
         end
     end
+
     # 3 × n² (column-major, flattens ϕ first, then θ)
     points_mat = reshape(points, 3, :)
-    num_points = size(points_mat, 2)
-    point_cloud = LatentPointCloud{M,Torus}(num_points, points_mat, torus)
+    point_cloud = LatentPointCloud{M,Torus}(points_mat, torus)
     return point_cloud
 end
 
@@ -143,11 +145,11 @@ function compute_mesh_vertex_normals(
 
     # normalize each vertex normal to unit length
     @inbounds for normal in eachcol(vertex_normals)
-        len = norm(normal)
+        magnitude = norm(normal)
         # avoid division by zero
-        len += iszero(len)
+        magnitude += iszero(magnitude)
         # view mutates the underlying array
-        normal ./= len
+        normal ./= magnitude
     end
     return (vertex_normals, vertex_weights)
 end
