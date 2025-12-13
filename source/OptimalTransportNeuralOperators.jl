@@ -174,12 +174,6 @@ function LatentOrientedSurfaceMeasure{M}(torus::Torus) where {M<:DenseMatrix{Flo
     return LatentOrientedSurfaceMeasure(num_points, points_mat, normals_mat, weights_gpu, torus)
 end
 
-function pairwise_squared_euclidean_distance(
-    xs::AbstractMeasure{M}, ys::AbstractMeasure{M}
-) where {M<:DenseMatrix{Float32}}
-    return pairwise_squared_euclidean_distance(xs.points, ys.points)
-end
-
 struct OptimalTransportPlan{M<:DenseMatrix{Float32},G<:LatentGrid}
     plan::M
     grid::G
@@ -188,8 +182,8 @@ end
 function OptimalTransportPlan(
     xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M,G}, num_iters::Int=100
 ) where {M<:DenseMatrix{Float32},G<:LatentGrid}
-    dists = pairwise_squared_euclidean_distance(xs, ys)
-    plan = compute_optimal_transport_plan(dists, num_iters)
+    dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
+    plan = compute_optimal_transport_plan(dists, xs.weights, ys.weights, num_iters)
     return OptimalTransportPlan(plan, ys.grid)
 end
 
@@ -330,7 +324,7 @@ function assign_points(
     measure_src::AbstractMeasure,       # (d x n)
     measure_dst::AbstractMeasure        # (d x m)
 )
-    dists = pairwise_squared_euclidean_distance(measure_src, measure_dst) # (n x m)
+    dists = pairwise_squared_euclidean_distance(measure_src.points, measure_dst.points)   # (n x m)
     index_pairs = vec(argmin(dists; dims=1))   # (m)
     indices_best = getindex.(index_pairs, 1)   # (m)
     return indices_best
