@@ -213,8 +213,8 @@ function compute_optimal_transport_plan(
     (n, m) = size(costs)
 
     # validate dimensions
-    @assert length(mu) == n "Source marginal dimension (mu) does not match costs rows."
-    @assert length(nu) == m "Target marginal dimension (nu) does not match costs columns."
+    @assert length(mu) == n "Source marginal dimension (mu) does not match costs' rows."
+    @assert length(nu) == m "Target marginal dimension (nu) does not match costs' columns."
 
     # target log-marginals: take log, and reshape for broadcasting
     log_mu = reshape(log.(mu), n, 1)     # (n × 1) to broadcast against columns
@@ -333,10 +333,12 @@ function pushforward_to_latent(
 
     encoding_indices = assign_points(dists)                         # (m)
     decoding_indices = assign_points(dists')                        # (n)
-    normals_t = measure.normals[:, encoding_indices]                # (d × m)
-    # dummy weights
-    weights = similar(measure.weights, 0)
-    measure_t = OrientedSurfaceMeasure(length(encoding_indices), points_t, normals_t, weights)
+
+    num_points = length(encoding_indices)
+    points_snapped = points[:,encoding_indices]                     # (d × m)
+    normals_snapped = measure.normals[:,encoding_indices]           # (d × m)
+    weights = similar(measure.weights, 0)   # dummy weights
+    measure_t = OrientedSurfaceMeasure(num_points, points_snapped, normals_snapped, weights)
     return (measure_t, encoding_indices, decoding_indices)
 end
 
