@@ -1,3 +1,4 @@
+using CUDA
 using GeometryBasics
 using FileIO
 using LinearAlgebra
@@ -6,6 +7,13 @@ using NNlib
 using Statistics
 
 abstract type LatentGrid end
+
+function vec_type(::Type{<:Array{T}}) where {T}
+    return Vector{T}
+end
+function vec_type(::Type{<:CuArray{T,N,M}}) where {T,N,M}
+    return CuVector{T,M}
+end
 
 # As ϕ changes from 0 to 2π, a point traces out a full circle around the z-axis,
 # forming the outer "ring" of the torus.
@@ -30,11 +38,11 @@ end
 
 abstract type AbstractMeasure{M<:DenseMatrix{Float32}} end
 
-struct OrientedSurfaceMeasure{M<:DenseMatrix{Float32}} <: AbstractMeasure{M}
+struct OrientedSurfaceMeasure{M<:DenseMatrix{Float32},V<:DenseVector{Float32}} <: AbstractMeasure{M}
     num_points::Int
     points::M
     normals::Matrix{Float32}
-    weights::Vector{Float32}
+    weights::V
 end
 
 # extract vertices as a point cloud from a 3D trianguler mesh object and compute
@@ -49,7 +57,7 @@ function OrientedSurfaceMeasure{M}(
     num_points = length(vertices)
     dim = 3
 
-    points = M(undef, dim, num_points)
+    points = Matrix{T}(undef, dim, num_points)
     eachcol(points) .= vertices
     normals = zeros(T, dim, num_points)
     weights = zeros(T, num_points)
@@ -93,6 +101,10 @@ function OrientedSurfaceMeasure{M}(
     @assert isfinite(Σweight⁻¹)
     weights .*= Σweight⁻¹
 
+    VectorType = vec_type(M)
+    weights_gpu = VectorType(weights)
+    points_gpu = M(points)
+
     # normalize each vertex normal to unit length
     @inbounds for normal in eachcol(normals)
         magnitude = norm(normal)
@@ -101,14 +113,14 @@ function OrientedSurfaceMeasure{M}(
         # view mutates the underlying array
         normal ./= magnitude
     end
-    return OrientedSurfaceMeasure{M}(num_points, points, normals, weights)
+    return OrientedSurfaceMeasure(num_points, points_gpu, normals, weights_gpu)
 end
 
-struct LatentOrientedSurfaceMeasure{M<:DenseMatrix{Float32},G<:LatentGrid} <: AbstractMeasure{M}
+struct LatentOrientedSurfaceMeasure{M<:DenseMatrix{Float32},G<:LatentGrid,V<:DenseVector{Float32}} <: AbstractMeasure{M}
     num_points::Int
     points::M
     normals::Matrix{Float32}
-    weights::Vector{Float32}
+    weights::V
     grid::G
 end
 
@@ -157,7 +169,9 @@ function LatentOrientedSurfaceMeasure{M}(torus::Torus) where {M<:DenseMatrix{Flo
     Σweight⁻¹ = inv(sum(weights_vec))
     @assert isfinite(Σweight⁻¹)
     weights_vec .*= Σweight⁻¹
-    return LatentOrientedSurfaceMeasure{M,Torus}(num_points, points_mat, normals_mat, weights_vec, torus)
+    VectorType = vec_type(M)
+    weights_gpu = VectorType(weights_vec)
+    return LatentOrientedSurfaceMeasure(num_points, points_mat, normals_mat, weights_gpu, torus)
 end
 
 function pairwise_squared_euclidean_distance(
@@ -206,15 +220,12 @@ function compute_optimal_transport_plan(
     @assert length(nu) == m "Target marginal dimension (nu) does not match cost_mat columns"
 
     # target log-marginals: take log, and reshape for broadcasting
-    log_mu = reshape(log.(mu), n, 1)   # (n, 1) to broadcast against columns
-    log_nu = reshape(log.(nu), 1, m)   # (1, m) to broadcast against rows
+    log_mu = reshape(log.(mu), n, 1)   # (n × 1) to broadcast against columns
+    log_nu = reshape(log.(nu), 1, m)   # (1 × m) to broadcast against rows
 
     # initialize dual variables (potentials)
-    f = similar(cost_mat, T, n, 1)
-    g = similar(cost_mat, T, 1, m)
-    zer = zero(T)
-    fill!(f, zer)
-    fill!(g, zer)
+    f = zero(log_mu)   # (n × 1)
+    g = zero(log_nu)   # (1 × m)
 
     # effective entropy regularization: ε_eff = ε * mean(cost_mat)
     c = -1.0f0 / (ε * mean(cost_mat))
