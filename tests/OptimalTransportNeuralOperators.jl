@@ -15,7 +15,4 @@ measure_l = LatentOrientedSurfaceMeasure{M}(Torus(n))
 unique(encoding_indices)
 unique(decoding_indices)
 
-encoded_points = measure.points[:, encoding_indices]
-decoded_points = measure_t.points[:, decoding_indices]
-
 estimate_plan_convergence(ot_plan, measure, measure_l)
