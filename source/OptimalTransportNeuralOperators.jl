@@ -47,7 +47,7 @@ struct OrientedSurfaceMeasure{M<:DenseMatrix{Float32},V<:DenseVector{Float32}} <
     weights::V
 end
 
-# extract vertices as a point cloud from a 3D trianguler mesh object and compute
+# extract vertices as a point cloud from a 3D triangulated mesh object and compute
 # corresponding vertex normals and weights by averaging the normals of adjacent faces,
 # weighted by the area of those faces.
 function OrientedSurfaceMeasure{M}(
@@ -211,8 +211,8 @@ function compute_optimal_transport_plan(
     (n, m) = size(cost_mat)
 
     # validate dimensions
-    @assert length(mu) == n "Source marginal dimension (mu) does not match cost_mat rows"
-    @assert length(nu) == m "Target marginal dimension (nu) does not match cost_mat columns"
+    @assert length(mu) == n "Source marginal dimension (mu) does not match cost_mat rows."
+    @assert length(nu) == m "Target marginal dimension (nu) does not match cost_mat columns."
 
     # target log-marginals: take log, and reshape for broadcasting
     log_mu = reshape(log.(mu), n, 1)   # (n × 1) to broadcast against columns
@@ -319,9 +319,9 @@ end
 """
     pushforward_to_physical(measure::OrientedSurfaceMeasure, ot_plan::OptimalTransportPlan)
 
-measure: (d × n) features on physical surface.
+measure: (d × n) features on the physical surface.
 ot_plan: (n × m) optimal transport plan from physical to latent spaces.
-Returns point_cloud_t: (d × m) features on latent grid.
+Returns measure_t: (d × m) features on latent grid.
 """
 function pushforward_to_physical(
     measure::OrientedSurfaceMeasure{M},                  # (d × n)
