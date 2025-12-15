@@ -1,6 +1,7 @@
 using CUDA
 using CairoMakie
 using GeometryBasics
+using GeometryBasics: Mesh
 using FileIO
 using LinearAlgebra
 using MeshIO
@@ -305,6 +306,18 @@ function plot_ot_plan(
     return figure
 end
 
+function cross_cols(xs::Matrix{Float32}, ys::Matrix{Float32})
+    @assert size(xs) == size(ys)
+    @assert size(xs, 1) == 3
+    zs = similar(xs)
+    @inbounds @simd for j in axes(xs, 2)
+        zs[1,j] = xs[2,j] * ys[3,j] - xs[3,j] * ys[2,j]
+        zs[2,j] = xs[3,j] * ys[1,j] - xs[1,j] * ys[3,j]
+        zs[3,j] = xs[1,j] * ys[2,j] - xs[2,j] * ys[1,j]
+    end
+    return zs
+end
+
 function normalize_columns(xs::AbstractMatrix{<:Real})
     col_sums = sum(xs; dims=1)
     xs_norm = xs ./ col_sums
@@ -353,19 +366,7 @@ function pushforward_to_latent(
 
     points_snapped = points[:,encoding_indices]                     # (d × m)
     normals_snapped = measure.normals[:,encoding_indices]           # (d × m)
-    return (points_snapped, normals_snapped, encoding_indices, decoding_indices, ot_plan)
-end
-
-function cross_cols(xs::Matrix{Float32}, ys::Matrix{Float32})
-    @assert size(xs) == size(ys)
-    @assert size(xs, 1) == 3
-    zs = similar(xs)
-    @inbounds @simd for j in axes(xs, 2)
-        zs[1,j] = xs[2,j] * ys[3,j] - xs[3,j] * ys[2,j]
-        zs[2,j] = xs[3,j] * ys[1,j] - xs[1,j] * ys[3,j]
-        zs[3,j] = xs[1,j] * ys[2,j] - xs[2,j] * ys[1,j]
-    end
-    return zs
+    return (points_snapped, normals_snapped, encoding_indices, decoding_indices)
 end
 
 function encode(
@@ -373,9 +374,18 @@ function encode(
     measure_l::LatentOrientedSurfaceMeasure{M}           # (d × m)
 ) where {M<:DenseMatrix{Float32}}
     ot_plan = OptimalTransportPlan(measure, measure_l)   # (n × m)
-    (points_t, normals_t, encoding_indices, decoding_indices, ot_plan) = pushforward_to_latent(
+    convergence_metrics = estimate_plan_convergence(ot_plan, measure, measure_l)
+    display(convergence_metrics)
+
+    (points_t, normals_t, encoding_indices, decoding_indices) = pushforward_to_latent(
         measure, ot_plan
     )
     torsions = cross_cols(measure_l.normals, normals_t)
-    return (measure_l.points, points_t, torsions, encoding_indices, decoding_indices, ot_plan)
+    grid = measure_l.grid
+    nϕ = length(grid.ϕ_vals)
+    nθ = length(grid.θ_vals)
+
+    features_flat = [measure_l.points' points_t' torsions']   # (m × 9)
+    features = reshape(features_flat, nϕ, nθ, 9, 1)           # (nϕ × nθ × 9 × 1)
+    return (features, encoding_indices, decoding_indices)
 end
