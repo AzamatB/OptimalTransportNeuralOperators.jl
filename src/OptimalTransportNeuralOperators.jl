@@ -374,8 +374,9 @@ function pushforward_to_latent(
     encoding_indices = assign_points(dists, 1)                      # (m)
     decoding_indices = assign_points(dists, 2)                      # (n)
 
-    used_ratio_encoding = ratio_utilized(encoding_indices, measure.num_points)
-    used_ratio_decoding = ratio_utilized(decoding_indices, measure_l.num_points)
+    (num_points, num_points_l) = size(dists)
+    used_ratio_encoding = ratio_utilized(encoding_indices, num_points)
+    used_ratio_decoding = ratio_utilized(decoding_indices, num_points_l)
     ratios = (; used_ratio_encoding, used_ratio_decoding)
     display(ratios)
 
