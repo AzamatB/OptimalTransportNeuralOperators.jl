@@ -84,17 +84,17 @@ function OrientedSurfaceMeasure{M}(
         normal = edge₁ × edge₂
         (normal_x, normal_y, normal_z) = normal
 
-        normals[1, i₁] += normal_x
-        normals[2, i₁] += normal_y
-        normals[3, i₁] += normal_z
+        normals[1,i₁] += normal_x
+        normals[2,i₁] += normal_y
+        normals[3,i₁] += normal_z
 
-        normals[1, i₂] += normal_x
-        normals[2, i₂] += normal_y
-        normals[3, i₂] += normal_z
+        normals[1,i₂] += normal_x
+        normals[2,i₂] += normal_y
+        normals[3,i₂] += normal_z
 
-        normals[1, i₃] += normal_x
-        normals[2, i₃] += normal_y
-        normals[3, i₃] += normal_z
+        normals[1,i₃] += normal_x
+        normals[2,i₃] += normal_y
+        normals[3,i₃] += normal_z
 
         # ‖normal‖ = 2⋅(area of face)
         double_area = norm(normal)
