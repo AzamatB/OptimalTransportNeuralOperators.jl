@@ -13,6 +13,13 @@ CUDA.allowscalar(false)
 
 abstract type LatentGrid end
 
+function move_to_cpu(array::Array)
+    return array
+end
+function move_to_cpu(array::CuArray{T,N}) where {T,N}
+    return Array{T,N}(array)
+end
+
 function vec_type(::Type{<:Array{T}}) where {T}
     return Vector{T}
 end
@@ -347,10 +354,9 @@ function assign_points(dists::AbstractMatrix{Float32}, dim::Int)   # (n x m)
     return indices_best
 end
 
-function ratio_utilized(indices::DenseVector{Int}, num_points::Int)
-    inds = Vector{Int}(indices)
-    max_possible = min(length(inds), num_points)
-    num_points_utilized = length(unique(inds))
+function ratio_utilized(indices::Vector{Int}, num_points::Int)
+    max_possible = min(length(indices), num_points)
+    num_points_utilized = length(unique(indices))
     ratio = num_points_utilized / max_possible
     return ratio
 end
@@ -374,15 +380,18 @@ function pushforward_to_latent(
     encoding_indices = assign_points(dists, 1)                      # (m)
     decoding_indices = assign_points(dists, 2)                      # (n)
 
+    encoding_indices_cpu = move_to_cpu(encoding_indices)
+    decoding_indices_cpu = move_to_cpu(decoding_indices)
+
     (num_points, num_points_l) = size(dists)
-    used_ratio_encoding = ratio_utilized(encoding_indices, num_points)
-    used_ratio_decoding = ratio_utilized(decoding_indices, num_points_l)
+    used_ratio_encoding = ratio_utilized(encoding_indices_cpu, num_points)
+    used_ratio_decoding = ratio_utilized(decoding_indices_cpu, num_points_l)
     ratios = (; used_ratio_encoding, used_ratio_decoding)
     display(ratios)
 
     points_snapped = points[:,encoding_indices]                     # (d × m)
-    normals_snapped = measure.normals[:,encoding_indices]           # (d × m)
-    return (points_snapped, normals_snapped, decoding_indices)
+    normals_snapped = measure.normals[:,encoding_indices_cpu]       # (d × m)
+    return (points_snapped, normals_snapped, decoding_indices_cpu)
 end
 
 function encode(
@@ -394,12 +403,14 @@ function encode(
     display(convergence_metrics)
 
     (points_t, normals_t, decoding_indices) = pushforward_to_latent(measure, ot_plan)
+    points_l_cpu = move_to_cpu(measure_l.points)
+    points_t_cpu = move_to_cpu(points_t)
     torsions = cross_cols(measure_l.normals, normals_t)
     grid = measure_l.grid
     nϕ = length(grid.ϕ_vals)
     nθ = length(grid.θ_vals)
 
-    features_flat = [measure_l.points' points_t' torsions']   # (m × 9)
+    features_flat = [points_l_cpu' points_t_cpu' torsions']   # (m × 9)
     features = reshape(features_flat, nϕ, nθ, 9, 1)           # (nϕ × nθ × 9 × 1)
     return (features, decoding_indices)
 end
