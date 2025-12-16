@@ -3,6 +3,8 @@ push!(LOAD_PATH, module_path)
 
 import OptimalTransportNeuralOperators as OTNO
 
+using CUDA
+using CUDA: DeviceMemory
 using FileIO
 using LazyArrays
 using MeshIO
@@ -48,7 +50,9 @@ end
 
 #######   preprocess the ShapeNet-Car dataset and save processed files   #######
 
-M = Matrix{Float32}
+# M = Matrix{Float32}
+M = CuMatrix{Float32,DeviceMemory}
+
 dir_src = "datasets/car-pressure-data/data"
 dir_dst = "datasets/car-pressure-data/processed-data"
 
