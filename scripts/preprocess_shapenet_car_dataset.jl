@@ -1,11 +1,13 @@
 module_path = normpath(joinpath(@__DIR__, "..", "src"))
 push!(LOAD_PATH, module_path)
 
+import OptimalTransportNeuralOperators as OTNO
+
+using FileIO
+using LazyArrays
+using MeshIO
 using NPZ
 using OptimalTransportNeuralOperators
-
-import OptimalTransportNeuralOperators as OTNO
-using OptimalTransportNeuralOperators: OTNODataSample
 
 struct ShapeNetCarDataSamplePaths <: OTNO.AbstractDataSamplePaths
     mesh::String
@@ -25,8 +27,9 @@ function OTNO.read_mesh_and_target(sample_paths::ShapeNetCarDataSamplePaths)
     return (mesh, target)
 end
 
-function preprocess_and_save_dataset(dir_src::String, dir_dst::String)
-    M = Matrix{Float32}
+function preprocess_and_save_dataset(
+    dir_src::String, dir_dst::String, ::Type{M}
+) where {M<:DenseMatrix{Float32}}
     folders = readdir(dir_src)
     for folder in folders
         subdir = joinpath(dir_src, folder)
@@ -37,16 +40,16 @@ function preprocess_and_save_dataset(dir_src::String, dir_dst::String)
         file_path_dst = joinpath(dir_dst, "$folder.jld")
 
         sample_paths = ShapeNetCarDataSamplePaths(file_path_mesh, file_path_target)
-        data_sample = OTNODataSample(sample_paths, M)
-        save_sample(file_path_dst, data_sample)
+        data_sample = OTNO.OTNODataSample(sample_paths, M)
+        OTNO.save_sample(file_path_dst, data_sample)
     end
     return nothing
 end
 
-
 #######   preprocess the ShapeNet-Car dataset and save processed files   #######
 
+M = Matrix{Float32}
 dir_src = "datasets/car-pressure-data/data"
 dir_dst = "datasets/car-pressure-data/processed-data"
 
-@time preprocess_and_save_dataset(dir_src, dir_dst)
+@time preprocess_and_save_dataset(dir_src, dir_dst, M)
