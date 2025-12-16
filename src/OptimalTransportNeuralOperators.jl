@@ -187,7 +187,7 @@ struct OptimalTransportPlan{M<:DenseMatrix{Float32}}
 end
 
 function OptimalTransportPlan(
-    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=100
+    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=500
 ) where {M<:DenseMatrix{Float32}}
     dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
     plan = compute_optimal_transport_plan(dists, xs.weights, ys.weights, num_iters)
@@ -215,7 +215,7 @@ function compute_optimal_transport_plan(
     num_iters::Int
 ) where {V<:DenseVector{Float32}}
     T = Float32
-    ε = T(0.005) # relative (to the mean cost) entropy regularization parameter
+    ε = T(0.001) # relative (to the mean cost) entropy regularization parameter
     (n, m) = size(costs)
 
     # validate dimensions

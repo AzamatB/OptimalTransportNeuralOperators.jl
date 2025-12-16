@@ -49,4 +49,4 @@ end
 dir_src = "datasets/car-pressure-data/data"
 dir_dst = "datasets/car-pressure-data/processed-data"
 
-preprocess_and_save_dataset(dir_src, dir_dst)
+@time preprocess_and_save_dataset(dir_src, dir_dst)
