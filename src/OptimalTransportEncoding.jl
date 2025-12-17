@@ -350,7 +350,7 @@ end
 # point in the source point cloud
 function assign_points(dists::AbstractMatrix{Float32}, dim::Int)   # (n x m)
     index_pairs = vec(argmin(dists; dims=dim))                     # (m)
-    indices_best = getindex.(index_pairs, dim)                     # (m)
+    indices_best = @. Int32(getindex(index_pairs, dim))            # (m)
     return indices_best
 end
 
@@ -422,7 +422,7 @@ function read_mesh_and_target end
 struct OTEDataSample
     features::Array{Float32,4}
     target::Vector{Float32}
-    decoding_indices::Vector{Int}
+    decoding_indices::Vector{Int32}
 end
 
 function OTEDataSample(
