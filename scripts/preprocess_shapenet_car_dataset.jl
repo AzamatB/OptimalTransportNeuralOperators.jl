@@ -38,7 +38,7 @@ function preprocess_and_save_dataset(
 
         file_path_mesh = joinpath(subdir, "tri_mesh.ply")
         file_path_target = joinpath(subdir, "press.npy")
-        file_path_dst = joinpath(dir_dst, "OTEDataSample-$folder.jls")
+        file_path_dst = joinpath(dir_dst, "OTEDataSample_$folder.jls")
 
         sample_paths = ShapeNetCarDataSamplePaths(file_path_mesh, file_path_target)
         data_sample = OTE.OTEDataSample(sample_paths, M)
