@@ -41,7 +41,7 @@ function preprocess_and_save_dataset(
 
         file_path_mesh = joinpath(subdir, "tri_mesh.ply")
         file_path_target = joinpath(subdir, "press.npy")
-        file_path_dst = joinpath(dir_dst, "$folder.jld")
+        file_path_dst = joinpath(dir_dst, "$folder.jls")
 
         sample_paths = ShapeNetCarDataSamplePaths(file_path_mesh, file_path_target)
         data_sample = OTNO.OTNODataSample(sample_paths, M)
