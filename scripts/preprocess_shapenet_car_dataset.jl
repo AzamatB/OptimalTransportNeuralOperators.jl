@@ -52,6 +52,6 @@ end
 M = CUDA.functional() ? CuMatrix{Float32,DeviceMemory} : Matrix{Float32}
 
 dir_src = "datasets/car-pressure-data/data"
-dir_dst = "datasets/car-pressure-data/processed-data"
+dir_dst = "datasets/car-pressure-data/OTE-data"
 
 @time preprocess_and_save_dataset(dir_src, dir_dst, M)
