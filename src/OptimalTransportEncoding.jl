@@ -193,7 +193,7 @@ struct OptimalTransportPlan{M<:DenseMatrix{Float32}}
 end
 
 function OptimalTransportPlan(
-    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=2000
+    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=2048
 ) where {M<:DenseMatrix{Float32}}
     dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
     plan = compute_optimal_transport_plan(dists, xs.weights, ys.weights, num_iters)
