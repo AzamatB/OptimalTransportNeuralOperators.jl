@@ -215,9 +215,9 @@ Arguments:
 Returns P (n × m) such that P >= 0, P*1 ≈ mu, P'*1 ≈ nu.
 """
 function compute_optimal_transport_plan(
-    costs::DenseMatrix{Float32},         # (n × m)
-    mu::V,                               # (n)
-    nu::V,                               # (m)
+    costs::DenseMatrix{Float32},       # (n × m)
+    mu::V,                             # (n)
+    nu::V,                             # (m)
     num_iters::Int
 ) where {V<:DenseVector{Float32}}
     T = Float32
@@ -234,31 +234,34 @@ function compute_optimal_transport_plan(
     @assert length(nu) == m "Target marginal dimension (nu) does not match costs' columns."
 
     # target log-marginals: take log, and reshape for broadcasting
-    log_mu = reshape(log.(mu), n, 1)     # (n × 1) to broadcast against columns
-    log_nu = reshape(log.(nu), 1, m)     # (1 × m) to broadcast against rows
+    log_mu = reshape(log.(mu), n, 1)   # (n × 1) to broadcast against columns
+    log_nu = reshape(log.(nu), 1, m)   # (1 × m) to broadcast against rows
 
     # initialize dual variables (potentials)
-    f = zero(log_mu)                     # (n × 1)
-    g = zero(log_nu)                     # (1 × m)
+    f = zero(log_mu)                   # (n × 1)
+    g = zero(log_nu)                   # (1 × m)
 
     # effective entropy regularization: ε_eff = ε * mean(costs)
     c = -1.0f0 / (ε * mean(costs))
     # kernel in log domain: logK = -costs / ε_eff
     logK = c .* costs
 
+    # preallocate temporary arrays
+    S = similar(costs)                 # (n × m)
+
     for _ in 1:num_iters
         # update f (row normalization) to match marginal mu
-        S_f = g .+ logK                  # (1 × m) .+ (n × m) -> (n × m)
-        lse_f = logsumexp(S_f; dims=2)   # (n × m) -> (n × 1)
-        f = log_mu .- lse_f              # (n × 1)
+        @. S = g + logK                # (1 × m) .+ (n × m) -> (n × m)
+        lse_f = logsumexp(S; dims=2)   # (n × m) -> (n × 1)
+        f = log_mu .- lse_f            # (n × 1)
 
         # update g (column normalization) to match marginal nu
-        S_g = f .+ logK                  # (n × 1) .+ (n × m) -> (n × m)
-        lse_g = logsumexp(S_g; dims=1)   # (n × m) -> (1 × m)
-        g = log_nu .- lse_g              # (1 × m)
+        @. S = f + logK                # (n × 1) .+ (n × m) -> (n × m)
+        lse_g = logsumexp(S; dims=1)   # (n × m) -> (1 × m)
+        g = log_nu .- lse_g            # (1 × m)
     end
     # transport plan: log_P = f + g + logK; => (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
-    P = exp.(f .+ g .+ logK)             # (n × m)
+    P = exp.(f .+ g .+ logK)           # (n × m)
     return P
 end
 
