@@ -276,11 +276,10 @@ function pairwise_squared_euclidean_distance(
     xs_sqᵀ = xs_sq'                             # (n × 1)
     # xᵀy
     xys = xs' * ys                              # (n × m)
-    # xᵀx + yᵀy - 2xᵀy,  ∀ x ∈ xs, y ∈ ys
-    dists = @. xs_sqᵀ + ys_sq - 2 * xys
     # ensure non-negativity
     zer = zero(Float32)
-    dists = max.(dists, zer)
+    # xᵀx + yᵀy - 2xᵀy,  ∀ x ∈ xs, y ∈ ys
+    dists = @. max(xs_sqᵀ + ys_sq - 2 * xys, zer)
     return dists                                # (n × m)
 end
 
