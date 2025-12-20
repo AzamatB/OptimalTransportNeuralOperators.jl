@@ -215,9 +215,9 @@ Arguments:
 Returns P (n × m) such that P >= 0, P*1 ≈ mu, P'*1 ≈ nu.
 """
 function compute_optimal_transport_plan(
-    costs::DenseMatrix{Float32},       # (n × m)
-    mu::V,                             # (n)
-    nu::V,                             # (m)
+    costs::DenseMatrix{Float32},            # (n × m)
+    mu::V,                                  # (n)
+    nu::V,                                  # (m)
     num_iters::Int
 ) where {V<:DenseVector{Float32}}
     T = Float32
@@ -234,12 +234,12 @@ function compute_optimal_transport_plan(
     @assert length(nu) == m "Target marginal dimension (nu) does not match costs' columns."
 
     # target log-marginals: take log, and reshape for broadcasting
-    log_mu = reshape(log.(mu), n, 1)   # (n × 1) to broadcast against columns
-    log_nu = reshape(log.(nu), 1, m)   # (1 × m) to broadcast against rows
+    log_mu = reshape(log.(mu), n, 1)        # (n × 1) to broadcast against columns
+    log_nu = reshape(log.(nu), 1, m)        # (1 × m) to broadcast against rows
 
     # initialize dual variables (potentials)
-    f = zero(log_mu)                   # (n × 1)
-    g = zero(log_nu)                   # (1 × m)
+    f = zero(log_mu)                        # (n × 1)
+    g = zero(log_nu)                        # (1 × m)
 
     # effective entropy regularization: ε_eff = ε * mean(costs)
     c = -1.0f0 / (ε * mean(costs))
@@ -247,22 +247,51 @@ function compute_optimal_transport_plan(
     logK = c .* costs
 
     # preallocate a temporary array
-    S = similar(costs)                 # (n × m)
+    S = similar(costs)                      # (n × m)
+
+    buffer_f = LogSumExpBuffer(S; dims=2)   # for row reductions
+    buffer_g = LogSumExpBuffer(S; dims=1)   # for column reductions
 
     for _ in 1:num_iters
         # update f (row normalization) to match marginal mu
-        @. S = g + logK                # (1 × m) .+ (n × m) -> (n × m)
-        lse_f = logsumexp(S; dims=2)   # (n × m) -> (n × 1)
-        @. f = log_mu - lse_f          # (n × 1)
+        @. S = g + logK                     # (1 × m) .+ (n × m) -> (n × m)
+        lse_f = logsumexp!(S, buffer_f)     # (n × m) -> (n × 1)
+        @. f = log_mu - lse_f               # (n × 1)
 
         # update g (column normalization) to match marginal nu
-        @. S = f + logK                # (n × 1) .+ (n × m) -> (n × m)
-        lse_g = logsumexp(S; dims=1)   # (n × m) -> (1 × m)
-        @. g = log_nu - lse_g          # (1 × m)
+        @. S = f + logK                     # (n × 1) .+ (n × m) -> (n × m)
+        lse_g = logsumexp!(S, buffer_g)     # (n × m) -> (1 × m)
+        @. g = log_nu - lse_g               # (1 × m)
+        @. g = log_nu - lse_g               # (1 × m)
     end
     # transport plan: log_P = f + g + logK; => (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
-    P = exp.(f .+ g .+ logK)           # (n × m)
+    P = exp.(f .+ g .+ logK)                # (n × m)
     return P
+end
+
+struct LogSumExpBuffer{M<:DenseMatrix{Float32}}
+    y::M       # reduced shape output
+    x_max::M   # reduced shape (same as y)
+end
+
+# constructor that infers shapes from input and dims
+function LogSumExpBuffer(x::M; dims) where {M<:DenseMatrix{Float32}}
+    shape = ntuple(i -> (i in dims) ? 1 : size(x, i), Val(2))
+    y = M(undef, shape)
+    x_max = similar(y)
+    LogSumExpBuffer(y, x_max)
+end
+
+function logsumexp!(x::M, buffer::LogSumExpBuffer{M}) where {M<:DenseMatrix{Float32}}
+    y = buffer.y
+    x_max = buffer.x_max
+    # x_max = maximum(x; dims) – dims inferred from shape
+    maximum!(x_max, x)
+    @. x = exp(x - x_max)
+    # output = sum(exp(x); dims) – dims inferred from shape
+    sum!(y, x)
+    @. y = log(y) + x_max
+    return y
 end
 
 # compute pairwise squared Euclidean distance between two point clouds.
