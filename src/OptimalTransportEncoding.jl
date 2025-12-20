@@ -245,20 +245,16 @@ function compute_optimal_transport_plan(
     c = -1.0f0 / (ε * mean(costs))
     # kernel in log domain: logK = -costs / ε_eff
     logK = c .* costs
-
-    # preallocate a temporary array
-    S = similar(costs)                 # (n × m)
-
     for _ in 1:num_iters
         # update f (row normalization) to match marginal mu
-        @. S = g + logK                # (1 × m) .+ (n × m) -> (n × m)
+        S = g .+ logK                  # (1 × m) .+ (n × m) -> (n × m)
         lse_f = logsumexp(S; dims=2)   # (n × m) -> (n × 1)
-        @. f = log_mu - lse_f          # (n × 1)
+        f = log_mu .- lse_f            # (n × 1)
 
         # update g (column normalization) to match marginal nu
-        @. S = f + logK                # (n × 1) .+ (n × m) -> (n × m)
+        S = f .+ logK                  # (n × 1) .+ (n × m) -> (n × m)
         lse_g = logsumexp(S; dims=1)   # (n × m) -> (1 × m)
-        @. g = log_nu - lse_g          # (1 × m)
+        g = log_nu .- lse_g            # (1 × m)
     end
     # transport plan: log_P = f + g + logK; => (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
     P = exp.(f .+ g .+ logK)           # (n × m)
