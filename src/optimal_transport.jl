@@ -81,7 +81,7 @@ function solve_lp_problem(
     row_ptr::Vector{Int32},
     col_ind::Vector{Int32},
     vals::Vector{Float64},
-    num_iters_min::Int32=Int32(8000)
+    termination_evaluation_frequency::Int32=Int32(8000)
 )
     A_desc_ref = Ref{Lib.matrix_desc_t}()
     params_ref = Ref{Lib.pdhg_parameters_t}()
@@ -108,7 +108,7 @@ function solve_lp_problem(
         # termination_evaluation_frequency is field 6
         offset = fieldoffset(Lib.pdhg_parameters_t, 6)
         freq_ptr = Ptr{Int32}(UInt(params_ptr) + offset)
-        unsafe_store!(freq_ptr, num_iters_min)
+        unsafe_store!(freq_ptr, termination_evaluation_frequency)
 
         lp_problem = Lib.create_lp_problem(
             pointer(c),
