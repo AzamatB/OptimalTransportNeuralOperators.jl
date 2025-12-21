@@ -161,7 +161,7 @@ struct OptimalTransportPlan{M<:DenseMatrix{Float32}}
 end
 
 function OptimalTransportPlan(
-    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=2048
+    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}
 ) where {M<:DenseMatrix{Float32}}
     dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
     plan = solve_optimal_transport_lp(dists, xs.weights, ys.weights)
@@ -203,6 +203,8 @@ end
 
 function normalize_columns(xs::AbstractMatrix{<:Real})
     col_sums = sum(xs; dims=1)
+    # avoid division by zero
+    @. col_sums = col_sums + iszero(col_sums)
     xs_norm = xs ./ col_sums
     return xs_norm
 end
@@ -250,8 +252,8 @@ function pushforward_to_latent(
     points_t = transport(points, plan)                              # (d × m)
     dists = pairwise_squared_euclidean_distance(points, points_t)   # (n × m)
 
-    encoding_indices = assign_points(dists, Val(1))                  # (m)
-    decoding_indices = assign_points(dists, Val(2))                  # (n)
+    encoding_indices = assign_points(dists, Val(1))                 # (m)
+    decoding_indices = assign_points(dists, Val(2))                 # (n)
 
     encoding_indices_cpu = move_to_cpu(encoding_indices)
     decoding_indices_cpu = move_to_cpu(decoding_indices)
@@ -262,8 +264,8 @@ function pushforward_to_latent(
     ratios = (; used_ratio_encoding, used_ratio_decoding)
     display(ratios)
 
-    points_snapped = points[:, encoding_indices]                     # (d × m)
-    normals_snapped = measure.normals[:, encoding_indices_cpu]       # (d × m)
+    points_snapped = points[:, encoding_indices]                    # (d × m)
+    normals_snapped = measure.normals[:, encoding_indices_cpu]      # (d × m)
     return (points_snapped, normals_snapped, decoding_indices_cpu)
 end
 
