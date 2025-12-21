@@ -1,6 +1,6 @@
-using cuPDLPx.LibcuPDLPx
+using cuPDLPx: LibcuPDLPx as Lib
 
-function form_optimal_transport_lp(
+function solve_optimal_transport_lp(
     costs::CuMatrix{Float32}, μ::Vector{Float64}, ν::Vector{Float64}
 )
     (n, m) = Int32.(size(costs))
@@ -45,8 +45,11 @@ function form_optimal_transport_lp(
 
     # values are all ones
     vals = ones(Float64, nnz)
-    coefficients = (; c, con_lb, con_ub, var_lb, var_ub, c₀, nnz, row_ptr, col_ind, vals)
-    return coefficients
+    x = solve_lp_problem(
+        num_vars, num_cons, c, c₀, var_lb, var_ub, con_lb, con_ub, nnz, row_ptr, col_ind, vals
+    )
+    plan = extract_plan(x, n, m)
+    return plan::CuMatrix{Float32}
 end
 
 function linear_index(k::Int32, n::Int32, m::Int32)
@@ -61,6 +64,68 @@ function linear_index(k::Int32, n::Int32, m::Int32)
     return col_index
 end
 
-function extract_plan(x::CuVector{Float32}, n::Int, m::Int)
-    return reshape(x, n, m)
+function extract_plan(x::Vector{Float64}, n::Int, m::Int)
+    x_gpu = CuVector{Float32}(x)
+    plan = reshape(x_gpu, n, m)
+    return plan
+end
+
+function solve_lp_problem(
+    num_vars::Int32,
+    num_cons::Int32,
+    c::Vector{Float64},
+    c₀::Vector{Float64},
+    var_lb::Vector{Float64},
+    var_ub::Vector{Float64},
+    con_lb::Vector{Float64},
+    con_ub::Vector{Float64},
+    nnz::Int32,
+    row_ptr::Vector{Int32},
+    col_ind::Vector{Int32},
+    vals::Vector{Float64}
+)
+    # form constraint matrix A in CSR format
+    A_csr = Lib.MatrixCSR(nnz, pointer(row_ptr), pointer(col_ind), pointer(vals))
+
+    # construct matrix_desc_t object for A
+    # 1. allocate zeroed struct on Julia side
+    A_desc_ref = Ref{Lib.matrix_desc_t}()
+    A_desc_ref[] = Lib.matrix_desc_t(ntuple(_ -> UInt8(0), Val(56))) # clear memory
+    A_desc_ptr = Base.unsafe_convert(Ptr{Lib.matrix_desc_t}, A_desc_ref)
+    # 2. set scalar fields
+    A_desc_ptr.m = num_cons
+    A_desc_ptr.n = num_vars
+    A_desc_ptr.fmt = Lib.matrix_csr
+    A_desc_ptr.zero_tolerance = 0.0
+    # 3. pass the CSR matrix A
+    A_desc_ptr.data.csr = A_csr
+
+    # set default PDHG parameters
+    params_ref = Ref{Lib.pdhg_parameters_t}()
+    params_ptr = Base.unsafe_convert(Ptr{Lib.pdhg_parameters_t}, params_ref)
+    Lib.set_default_parameters(params_ptr)
+
+    GC.@preserve c c₀ con_lb con_ub var_lb var_ub row_ptr col_ind vals A_desc_ref params_ref begin
+        lp_problem = Lib.create_lp_problem(
+            pointer(c),
+            A_desc_ptr,
+            pointer(con_lb),
+            pointer(con_ub),
+            pointer(var_lb),
+            pointer(var_ub),
+            pointer(c₀)
+        )
+        lp_problem == C_NULL && error("Failed to create LP problem")
+
+        result_ptr = Lib.solve_lp_problem(lp_problem, params_ptr)
+        result_ptr == C_NULL && error("Solver returned null result")
+
+        result = unsafe_load(result_ptr)
+        primal_solution = copy(
+            unsafe_wrap(Array, result.primal_solution, Int(result.num_variables); own=false)
+        )
+        Lib.cupdlpx_result_free(result_ptr)
+        Lib.lp_problem_free(lp_problem)
+    end
+    return primal_solution
 end
