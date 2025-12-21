@@ -21,10 +21,10 @@ function solve_optimal_transport_lp(
     var_lb = zeros(Float64, num_vars)
     var_ub = fill(Inf64, num_vars)
 
-    # CSR structure: num_cons x num_vars, nnz = 2 * num_vars
+    # CSR structure: num_cons x num_vars, nnz = 2 * num_vars (cuPDLPx expects 0-based indices)
     nnz = Int32(2 * num_vars)
     row_ptr = Vector{Int32}(undef, num_cons + 1)
-    row_ptr[1] = one(Int32)
+    row_ptr[1] = zero(Int32)
     @inbounds for i in 1:n
         row_ptr[i+1] = row_ptr[i] + m
     end
@@ -33,12 +33,13 @@ function solve_optimal_transport_lp(
     end
 
     col_ind = Vector{Int32}(undef, nnz)
-    one_to_num_vars = Int32(1):Int32(num_vars)
+    range_num_vars₀ = Int32(0):Int32(num_vars - 1)
+    range_num_vars₁ = Int32(1):Int32(num_vars)
     # source constraints block (rows 1..n): row-wise access in column-major flattening
-    @. col_ind[one_to_num_vars] = linear_index(one_to_num_vars, n, m)
+    @. col_ind[range_num_vars₁] = linear_index(range_num_vars₀, n, m)
     # target constraints block (rows n+1..n+m): contiguous columns
     # col_ind[(num_vars+1):(2 * num_vars)] = 1:num_vars
-    col_ind[(num_vars+1):end] .= one_to_num_vars
+    col_ind[(num_vars+1):end] .= range_num_vars₀
 
     # values are all ones
     vals = ones(Float64, nnz)
@@ -50,14 +51,11 @@ function solve_optimal_transport_lp(
 end
 
 function linear_index(k::Int32, n::Int32, m::Int32)
-    uno = one(Int32)
-    km1 = k - uno
-    # im1 = i-1   (0-based row index in row-major enumeration)
-    im1 = km1 ÷ m
-    # jm1 = j-1   (0-based col index)
-    jm1 = km1 - im1 * m
-    # 1-based column-major linear index: i + (j-1)*n
-    col_index = im1 + uno + jm1 * n
+    # k is 0-based row-major index
+    i = k ÷ m
+    j = k - i * m
+    # 0-based column-major linear index: i + j * n
+    col_index = i + j * n
     return col_index
 end
 
