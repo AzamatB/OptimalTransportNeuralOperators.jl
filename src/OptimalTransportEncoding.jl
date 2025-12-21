@@ -5,7 +5,6 @@ using CairoMakie
 using GeometryBasics
 using GeometryBasics: Mesh
 using LinearAlgebra
-using NNlib
 using Serialization
 using Statistics
 using cuPDLPx: LibcuPDLPx as Lib
