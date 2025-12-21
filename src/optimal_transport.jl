@@ -80,7 +80,8 @@ function solve_lp_problem(
     nnz::Int32,
     row_ptr::Vector{Int32},
     col_ind::Vector{Int32},
-    vals::Vector{Float64}
+    vals::Vector{Float64},
+    num_iters_min::Int32=Int32(8000)
 )
     A_desc_ref = Ref{Lib.matrix_desc_t}()
     params_ref = Ref{Lib.pdhg_parameters_t}()
@@ -102,6 +103,12 @@ function solve_lp_problem(
         # set default PDHG parameters
         params_ptr = Base.unsafe_convert(Ptr{Lib.pdhg_parameters_t}, params_ref)
         Lib.set_default_parameters(params_ptr)
+
+        # Set minimum iterations (check termination only every 8000 steps)
+        # termination_evaluation_frequency is field 6
+        offset = fieldoffset(Lib.pdhg_parameters_t, 6)
+        freq_ptr = Ptr{Int32}(UInt(params_ptr) + offset)
+        unsafe_store!(freq_ptr, num_iters_min)
 
         lp_problem = Lib.create_lp_problem(
             pointer(c),
