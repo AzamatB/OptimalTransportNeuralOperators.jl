@@ -333,6 +333,8 @@ end
 
 function normalize_columns(xs::AbstractMatrix{<:Real})
     col_sums = sum(xs; dims=1)
+    # avoid division by zero
+    @. col_sums = col_sums + iszero(col_sums)
     xs_norm = xs ./ col_sums
     return xs_norm
 end
@@ -380,8 +382,8 @@ function pushforward_to_latent(
     points_t = transport(points, plan)                              # (d × m)
     dists = pairwise_squared_euclidean_distance(points, points_t)   # (n × m)
 
-    encoding_indices = assign_points(dists, Val(1))                  # (m)
-    decoding_indices = assign_points(dists, Val(2))                  # (n)
+    encoding_indices = assign_points(dists, Val(1))                 # (m)
+    decoding_indices = assign_points(dists, Val(2))                 # (n)
 
     encoding_indices_cpu = move_to_cpu(encoding_indices)
     decoding_indices_cpu = move_to_cpu(decoding_indices)
