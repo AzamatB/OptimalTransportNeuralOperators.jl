@@ -1,78 +1,3 @@
-
-
-struct OptimalTransportPlan{M<:DenseMatrix{Float32}}
-    plan::M
-end
-
-function OptimalTransportPlan(
-    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=2048
-) where {M<:DenseMatrix{Float32}}
-    dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
-    plan = compute_optimal_transport_plan(dists, xs.weights, ys.weights, num_iters)
-    return OptimalTransportPlan(plan)
-end
-
-"""
-    compute_optimal_transport_plan(costs, mu, nu, num_iters)
-
-Compute an entropic regularized optimal transport plan between discrete measures mu (length n)
-and nu (length m) given a cost matrix (n×m) using the Log-Domain Sinkhorn-Knopp algorithm.
-
-Arguments:
-- costs: DenseMatrix{Float32} of size (n, m)
-- mu: Source marginals (vector of length n)
-- nu: Target marginals (vector of length m)
-- num_iters: Number of iterations
-
-Returns P (n × m) such that P >= 0, P*1 ≈ mu, P'*1 ≈ nu.
-"""
-function compute_optimal_transport_plan(
-    costs::DenseMatrix{Float32},       # (n × m)
-    mu::V,                             # (n)
-    nu::V,                             # (m)
-    num_iters::Int
-) where {V<:DenseVector{Float32}}
-    T = Float32
-    ε = T(0.0008) # relative (to the mean cost) entropy regularization parameter
-    (n, m) = size(costs)
-
-    # ensure no zero marginals (to avoid log(0))
-    δ = floatmin(T)
-    @. mu += δ * iszero(mu)
-    @. nu += δ * iszero(nu)
-
-    # validate dimensions
-    @assert length(mu) == n "Source marginal dimension (mu) does not match costs' rows."
-    @assert length(nu) == m "Target marginal dimension (nu) does not match costs' columns."
-
-    # target log-marginals: take log, and reshape for broadcasting
-    log_mu = reshape(log.(mu), n, 1)   # (n × 1) to broadcast against columns
-    log_nu = reshape(log.(nu), 1, m)   # (1 × m) to broadcast against rows
-
-    # initialize dual variables (potentials)
-    f = zero(log_mu)                   # (n × 1)
-    g = zero(log_nu)                   # (1 × m)
-
-    # effective entropy regularization: ε_eff = ε * mean(costs)
-    c = -1.0f0 / (ε * mean(costs))
-    # kernel in log domain: logK = -costs / ε_eff
-    logK = c .* costs
-    for _ in 1:num_iters
-        # update f (row normalization) to match marginal mu
-        S = g .+ logK                  # (1 × m) .+ (n × m) -> (n × m)
-        lse_f = logsumexp(S; dims=2)   # (n × m) -> (n × 1)
-        f = log_mu .- lse_f            # (n × 1)
-
-        # update g (column normalization) to match marginal nu
-        S = f .+ logK                  # (n × 1) .+ (n × m) -> (n × m)
-        lse_g = logsumexp(S; dims=1)   # (n × m) -> (1 × m)
-        g = log_nu .- lse_g            # (1 × m)
-    end
-    # transport plan: log_P = f + g + logK; => (n, 1) .+ (1, m) .+ (n, m) -> (n, m)
-    P = exp.(f .+ g .+ logK)           # (n × m)
-    return P
-end
-
 # compute pairwise squared Euclidean distance between two point clouds.
 # xs: (d, n) - physical points
 # ys: (d, m) - latent points
@@ -104,8 +29,7 @@ function solve_optimal_transport_lp(
     num_cons = n + m
 
     # objective coefficients
-    c = Vector{Float64}(undef, num_vars)
-    copyto!(c, vec(costs))
+    c = Vector{Float64}(vec(costs))
     # constant term in objective
     c₀ = Float64[0.0]
 
@@ -142,7 +66,7 @@ function solve_optimal_transport_lp(
     x = solve_lp_problem(
         num_vars, num_cons, c, c₀, var_lb, var_ub, con_lb, con_ub, nnz, row_ptr, col_ind, vals
     )
-    plan = extract_plan(x, n, m)
+    plan = move_to_gpu(extract_plan(x, n, m))
     return plan::CuMatrix{Float32}
 end
 
@@ -159,8 +83,7 @@ function linear_index(k::Int32, n::Int32, m::Int32)
 end
 
 function extract_plan(x::Vector{Float64}, n::Int, m::Int)
-    x_gpu = CuVector{Float32}(x)
-    plan = reshape(x_gpu, n, m)
+    plan = reshape(x, n, m)
     return plan
 end
 

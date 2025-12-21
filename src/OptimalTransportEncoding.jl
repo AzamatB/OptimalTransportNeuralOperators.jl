@@ -12,9 +12,9 @@ using cuPDLPx: LibcuPDLPx as Lib
 
 CUDA.allowscalar(false)
 
-include("core.jl")
-
 include("optimal_transport.jl")
+
+include("core.jl")
 
 include("utils.jl")
 

@@ -25,11 +25,11 @@ end
 
 abstract type AbstractMeasure{M<:DenseMatrix{Float32}} end
 
-struct OrientedSurfaceMeasure{M<:DenseMatrix{Float32},V<:DenseVector{Float32}} <: AbstractMeasure{M}
+struct OrientedSurfaceMeasure{M<:DenseMatrix{Float32}} <: AbstractMeasure{M}
     num_points::Int
     points::M
     normals::Matrix{Float32}
-    weights::V
+    weights::Vector{Float64}
 end
 
 # extract vertices as a point cloud from a 3D triangulated mesh object and compute
@@ -47,7 +47,7 @@ function OrientedSurfaceMeasure{M}(
     points = Matrix{T}(undef, dim, num_points)
     eachcol(points) .= vertices
     normals = zeros(T, dim, num_points)
-    weights = zeros(T, num_points)
+    weights = zeros(Float64, num_points)
 
     @inbounds for n in eachindex(faces)
         face = faces[n]
@@ -77,20 +77,17 @@ function OrientedSurfaceMeasure{M}(
         normals[3, i₃] += normal_z
 
         # ‖normal‖ = 2⋅(area of face)
-        double_area = norm(normal)
+        double_area = Float64(norm(normal))
         weights[i₁] += double_area
         weights[i₂] += double_area
         weights[i₃] += double_area
     end
 
+    points_gpu = M(points)
     # normalize vertex weights to sum to 1
     Σweight⁻¹ = inv(sum(weights))
     @assert isfinite(Σweight⁻¹)
     weights .*= Σweight⁻¹
-
-    VectorType = vec_type(M)
-    weights_gpu = VectorType(weights)
-    points_gpu = M(points)
 
     # normalize each vertex normal to unit length
     @inbounds for normal in eachcol(normals)
@@ -100,14 +97,14 @@ function OrientedSurfaceMeasure{M}(
         # view mutates the underlying array
         normal ./= magnitude
     end
-    return OrientedSurfaceMeasure(num_points, points_gpu, normals, weights_gpu)
+    return OrientedSurfaceMeasure(num_points, points_gpu, normals, weights)
 end
 
-struct LatentOrientedSurfaceMeasure{M<:DenseMatrix{Float32},G<:LatentGrid,V<:DenseVector{Float32}} <: AbstractMeasure{M}
+struct LatentOrientedSurfaceMeasure{M<:DenseMatrix{Float32},G<:LatentGrid} <: AbstractMeasure{M}
     num_points::Int
     points::M
     normals::Matrix{Float32}
-    weights::V
+    weights::Vector{Float64}
     grid::G
 end
 
@@ -125,7 +122,7 @@ function LatentOrientedSurfaceMeasure{M}(torus::Torus) where {M<:DenseMatrix{Flo
     sincosϕs = NTuple{2,Float32}[(sin(ϕ), cos(ϕ)) for ϕ in ϕ_vals]
     points = Array{T}(undef, dim, nϕ, nθ)
     normals = Array{T}(undef, dim, nϕ, nθ)
-    weights = Matrix{T}(undef, nϕ, nθ)
+    weights = Matrix{Float64}(undef, nϕ, nθ)
 
     @inbounds for j in eachindex(θ_vals)
         θ = θ_vals[j]
@@ -156,9 +153,19 @@ function LatentOrientedSurfaceMeasure{M}(torus::Torus) where {M<:DenseMatrix{Flo
     Σweight⁻¹ = inv(sum(weights_vec))
     @assert isfinite(Σweight⁻¹)
     weights_vec .*= Σweight⁻¹
-    VectorType = vec_type(M)
-    weights_gpu = VectorType(weights_vec)
-    return LatentOrientedSurfaceMeasure(num_points, points_mat, normals_mat, weights_gpu, torus)
+    return LatentOrientedSurfaceMeasure(num_points, points_mat, normals_mat, weights_vec, torus)
+end
+
+struct OptimalTransportPlan{M<:DenseMatrix{Float32}}
+    plan::M
+end
+
+function OptimalTransportPlan(
+    xs::OrientedSurfaceMeasure{M}, ys::LatentOrientedSurfaceMeasure{M}, num_iters::Int=2048
+) where {M<:DenseMatrix{Float32}}
+    dists = pairwise_squared_euclidean_distance(xs.points, ys.points)
+    plan = solve_optimal_transport_lp(dists, xs.weights, ys.weights)
+    return OptimalTransportPlan(plan)
 end
 
 function cross_cols(xs::Matrix{Float32}, ys::Matrix{Float32})
