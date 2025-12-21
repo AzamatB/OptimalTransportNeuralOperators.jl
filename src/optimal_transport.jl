@@ -109,8 +109,8 @@ function solve_lp_problem(
         offset = fieldoffset(Lib.pdhg_parameters_t, 6)
         freq_ptr = Ptr{Int32}(UInt(params_ptr) + offset)
         unsafe_store!(freq_ptr, termination_evaluation_frequency)
-        # Set polish feasibility flag (field 9)
-        offset = fieldoffset(Lib.pdhg_parameters_t, 9)
+        # Set polish feasibility flag (field 10)
+        offset = fieldoffset(Lib.pdhg_parameters_t, 10)
         feasibility_ptr = Ptr{Bool}(UInt(params_ptr) + offset)
         unsafe_store!(feasibility_ptr, polish_feasibility)
 
