@@ -1,6 +1,9 @@
 function solve_optimal_transport_lp(
     costs::CuMatrix{Float32}, μ::Vector{Float64}, ν::Vector{Float64}
 )
+    desc_size = sizeof(Lib.matrix_desc_t)
+    @assert desc_size == 56 "Lib.matrix_desc_t size mismatch! Expected 56, got $desc_size"
+
     (n, m) = Int32.(size(costs))
     @assert length(μ) == n
     @assert length(ν) == m
@@ -9,6 +12,7 @@ function solve_optimal_transport_lp(
 
     # objective coefficients
     c = Vector{Float64}(vec(costs))
+    any(isnan, c) && error("Costs matrix contains NaNs")
     # constant term in objective
     c₀ = Float64[0.0]
 
@@ -59,7 +63,7 @@ function linear_index(k::Int32, n::Int32, m::Int32)
     return col_index
 end
 
-function extract_plan(x::Vector{Float64}, n::Int, m::Int)
+function extract_plan(x::Vector{Float64}, n::Integer, m::Integer)
     plan = reshape(x, n, m)
     return plan
 end
@@ -85,7 +89,7 @@ function solve_lp_problem(
         A_csr = Lib.MatrixCSR(nnz, pointer(row_ptr), pointer(col_ind), pointer(vals))
         # construct matrix_desc_t object for A
         # 1. allocate zeroed struct on Julia side
-        A_desc_ref[] = Lib.matrix_desc_t(ntuple(_ -> UInt8(0), Val(56))) # clear memory
+        A_desc_ref[] = Lib.matrix_desc_t(ntuple(_ -> UInt8(0), 56)) # clear memory
         A_desc_ptr = Base.unsafe_convert(Ptr{Lib.matrix_desc_t}, A_desc_ref)
         # 2. set scalar fields
         A_desc_ptr.m = num_cons
